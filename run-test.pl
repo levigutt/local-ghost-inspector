@@ -10,10 +10,16 @@ use Data::Printer;
 
 BEGIN
 {
+    if ( $::help )
+    {
+        warn "$0 [-help] [-visible] [-starturl=url] file [file...]\n";
+        exit;
+    }
     note "Tests will run in Firefox regardless of settings.";
     $::visible //= 0;
     our $ff = Firefox::Marionette->new(visible => $::visible);
 }
+
 
 ################
 #### CONFIG ####
@@ -27,10 +33,10 @@ my $scrollOpts = {   behavior => 'instant'
                  ,   inline => 'center'
                  };
 
-my @step_keys = qw<command condition target value variableName optional notes>;
-my @interact_cmds = qw<click type>;
-my @assert_elem_cmds = qw<assertElementPresent assertElementNotPresent assertElementVisible assertElementNotVisible assertTextPresent>;
-my @other_cmds = qw<open assertEval extractEval pause>;
+my @step_keys = qw< command condition target value variableName optional notes >;
+my @interact_cmds = qw< click type >;
+my @assert_elem_cmds = qw< assertElementPresent assertElementNotPresent assertElementVisible assertElementNotVisible assertTextPresent assertTextNotPresent >;
+my @other_cmds = qw< open refresh goBack assertEval extractEval pause exit >;
 my @all_cmds = (@interact_cmds, @assert_elem_cmds, @other_cmds);
 
 
@@ -43,6 +49,8 @@ my $startUrl = $test->{startUrl}     // die "Missing starting url\n";
 my $name     = $test->{name}         // die "Nameless test\n";
 my $steps    = $test->{steps}        // die "No steps in test suite\n";
 my $viewPort = $test->{viewportSize};
+
+$startUrl = $::starturl if defined $::starturl; # override start url
 
 defined $viewPort->{width} && defined $viewPort->{height}
     or $viewPort = $defaultViewPort;
@@ -87,6 +95,9 @@ for my $idx (keys @{$steps})
 
     if ( grep { $_ eq $cmd } @other_cmds )
     {
+        $ff->refresh                    if $cmd eq 'refresh';
+        $ff->goBack                     if $cmd eq 'goBack';
+        ok $val eq 'passing' and last   if $cmd eq 'exit';
         note($desc), sleep $val/1000    if $cmd eq 'pause';
         ok $ff->script($val), $desc     if $cmd eq 'assertEval';
         $vars{$var} = $ff->script($val) if $cmd eq 'extractEval';
@@ -115,6 +126,7 @@ for my $idx (keys @{$steps})
     ok +(all  { $_->is_displayed        } @elems), $desc if $cmd eq 'assertElementVisible';
     ok +(none { $_->is_displayed        } @elems), $desc if $cmd eq 'assertElementNotVisible';
     ok +(any  { elem_contains($_, $val) } @elems), $desc if $cmd eq 'assertTextPresent';
+    ok +(none { elem_contains($_, $val) } @elems), $desc if $cmd eq 'assertTextNotPresent';
 }
 
 $ff->clear_cache;

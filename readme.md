@@ -16,9 +16,9 @@ run-test.pl testsuite.json
 - [ ] keypress
 - [ ] screenshot
 - [ ] eval
-- [ ] exit
-- [ ] goBack
-- [ ] refresh
+- [x] exit
+- [x] goBack
+- [x] refresh
 - [x] assertElementPresent
 - [x] assertElementNotPresent
 - [x] assertElementVisible
@@ -26,7 +26,7 @@ run-test.pl testsuite.json
 - [ ] assertText
 - [ ] assertNotText
 - [x] assertTextPresent
-- [ ] assertTextNotPresent
+- [x] assertTextNotPresent
 - [ ] assertAccessibility
 - [x] assertEval
 - [x] pause
@@ -37,8 +37,12 @@ run-test.pl testsuite.json
 
 ## known bugs and limitations
 
-- tests are run in Firefox::Marionette only
-    - no current plans to implement Chromium
-- cannot resize window on macos (unknown cause)
+- no support for importing steps
+    - testsuite must therefore be exported with imported steps included
+- many test settings are ignored
+    - schedule: tests run immediately regardless of schedule
+    - browser: all tests run in Firefox
+    - viewport size\*
 - screenshot comparison is not planned
 
+\*) window is attempted resized, but this is unreliable
