@@ -18,7 +18,7 @@ BEGIN
 ################
 #### CONFIG ####
 ################
-my $step_pause = 0.4;  # between steps
+my $step_pause = 0.25;  # between steps
 my $test_pause = 1;     # between tests
 
 my $defaultViewPort = { width => 1280, height => 800 };
@@ -95,15 +95,7 @@ for my $idx (keys @{$steps})
     }
 
 
-    if ( $idx == 24 )
-    {
-        p $target;
-        $target =~ s/\"/\'/g;
-        p $target;
-    }
     my @elems = find_elements($ff, $target);
-    p @elems if $idx == 24;
-    sleep if $idx == 24;
     if ( grep { $_ eq $cmd } @interact_cmds )
     {
         unless( @elems )
