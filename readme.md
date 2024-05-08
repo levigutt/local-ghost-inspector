@@ -6,16 +6,18 @@ run-test.pl testsuite.json
 
 - output is in TAP format
 
-## implementation status of commands
+## implementation status
+
+**commands**
 
 - [x] open
 - [x] click
-- [ ] mouseOver
+- [x] mouseOver
 - [ ] dragAndDrop
 - [ ] assign
 - [ ] keypress
 - [ ] screenshot
-- [ ] eval
+- [x] eval
 - [x] exit
 - [x] goBack
 - [x] refresh
@@ -35,14 +37,46 @@ run-test.pl testsuite.json
 - [x] extractEval
 - [ ] execute
 
+**built-in variables**
+
+- [x] timestamp
+- [x] alphanumeric
+- [x] name.firstName
+- [x] name.lastName
+- [x] name.prefix
+- [x] name.suffix
+- [x] name.title
+- [x] company.companyName
+- [x] address.streetAddress
+- [x] address.city
+- [x] address.state
+- [x] address.stateAbbr
+- [x] address.zipCode
+- [x] address.countryCode
+- [x] phone.phoneNumber
+- [x] phone.phoneNumberFormat
+- [ ] image.avatar
+- [x] internet.email
+- [x] internet.password
+- [x] internet.ip
+- [x] internet.color
+- [x] date.month
+- [x] date.weekday
+- [ ] data.past
+- [ ] data.future
+- [ ] commerce.productName
+- [x] commerce.price
+- [x] lorem.text
+- [x] random.number
+- [x] random.uuid
+
 ## known bugs and limitations
 
 - no support for importing steps
-    - testsuite must therefore be exported with imported steps included
+    - you must include imported steps when exporting test suite
 - many test settings are ignored
     - schedule: tests run immediately regardless of schedule
     - browser: all tests run in Firefox
-    - viewport size\*
+- window resizing is attempted, but this is unreliable
 - screenshot comparison is not planned
 
-\*) window is attempted resized, but this is unreliable

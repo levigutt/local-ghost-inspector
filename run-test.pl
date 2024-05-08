@@ -2,14 +2,18 @@
 use strict;
 use JSON::XS;
 use Firefox::Marionette;
+use Firefox::Marionette::Buttons qw<:all>;
 use Time::HiRes qw<sleep>;
 use List::Util qw<any all none first>;
 use Test::More;
+use lib './lib';
+use GhostInspector::Data qw<weave>;
 
 use Data::Printer;
 
 BEGIN
 {
+    $::help //= 0;
     if ( $::help )
     {
         warn "$0 [-help] [-visible] [-starturl=url] file [file...]\n";
@@ -19,6 +23,7 @@ BEGIN
     $::visible //= 0;
     our $ff = Firefox::Marionette->new(visible => $::visible);
 }
+our %vars = ();
 
 
 ################
@@ -36,7 +41,7 @@ my $scrollOpts = {   behavior => 'instant'
 my @step_keys = qw< command condition target value variableName optional notes >;
 my @interact_cmds = qw< click type >;
 my @assert_elem_cmds = qw< assertElementPresent assertElementNotPresent assertElementVisible assertElementNotVisible assertTextPresent assertTextNotPresent >;
-my @other_cmds = qw< open refresh goBack assertEval extractEval pause exit >;
+my @other_cmds = qw< open refresh goBack assertEval extractEval eval pause exit >;
 my @all_cmds = (@interact_cmds, @assert_elem_cmds, @other_cmds);
 
 
@@ -61,7 +66,6 @@ defined $viewPort->{width} && defined $viewPort->{height}
 ##################
 note sprintf "Starting test: %s", $name;
 
-our %vars = ();
 our $ff->resize($viewPort->{width}, $viewPort->{height})
     or diag "Could not resize browser window";
 ok $ff->go($startUrl), "Could go to $startUrl";
@@ -90,8 +94,7 @@ for my $idx (keys @{$steps})
         next;
     }
 
-    $val //= '';
-    $val =~ s/\{\{$_\}\}/$vars{$_}/g for keys %vars;
+    $val = weave($val, %vars);
 
     if ( grep { $_ eq $cmd } @other_cmds )
     {
@@ -99,6 +102,7 @@ for my $idx (keys @{$steps})
         $ff->goBack                     if $cmd eq 'goBack';
         ok $val eq 'passing' and last   if $cmd eq 'exit';
         note($desc), sleep $val/1000    if $cmd eq 'pause';
+        $ff->script($val)               if $cmd eq 'eval';
         ok $ff->script($val), $desc     if $cmd eq 'assertEval';
         $vars{$var} = $ff->script($val) if $cmd eq 'extractEval';
         $ff->go($val) if $cmd eq 'open';
@@ -118,6 +122,17 @@ for my $idx (keys @{$steps})
 
         ok click_element($ff, @elems), $desc if $cmd eq 'click';
         ok $elems[0]->type($val), $desc      if $cmd eq 'type';
+        $ff->mouse_move($elems[0])           if $cmd eq 'mouseOver';
+        if ( $cmd eq 'dragAndDrop' )
+        {
+            my ($drop) = find_elements($value);
+            diag "$desc\nCould not find drop area $value";
+            $ff->mouse_move($elems[0]);
+            $ff->mouse_down(LEFT_BUTTON);
+            $drop->scroll($scrollOpts) unless $drop->is_displayed;
+            $ff->mouse_move($drop);
+            $ff->mouse_up(LEFT_BUTTON);
+        }
         next;
     }
 
@@ -194,3 +209,4 @@ sub elem_contains
     }
     $elem->text =~ $re;
 }
+
