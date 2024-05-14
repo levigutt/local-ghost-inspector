@@ -11,20 +11,22 @@ use GhostInspector::Data qw<weave>;
 
 use Data::Printer;
 
+our $ff;
+our %vars = ();
+our ($help, $ignoreViewPort);
 BEGIN
 {
-    $::help //= 0;
-    if ( $::help )
+    if ( 0 == @ARGV || $::help // 0 )
     {
-        warn "$0 [-help] [-visible] [-starturl=url] file [file...]\n";
+        warn "$0 [-help] [-visible] [-ignoreViewPort] [-starturl=url] file [file...]\n";
         exit;
     }
-    note "Tests will run in Firefox regardless of settings.";
-    $::visible //= 0;
-    our $ff = Firefox::Marionette->new(visible => $::visible);
+    note "Tests will run in Firefox regardless of test settings.";
+    if ( $ignoreViewPort )
+    {
+        $ff = Firefox::Marionette->new(visible => $::visible // 0);
+    }
 }
-our %vars = ();
-
 
 ################
 #### CONFIG ####
@@ -66,8 +68,20 @@ defined $viewPort->{width} && defined $viewPort->{height}
 ##################
 note sprintf "Starting test: %s", $name;
 
-our $ff->resize($viewPort->{width}, $viewPort->{height})
-    or diag "Could not resize browser window";
+if ( $ignoreViewPort )
+{
+    # attempt to change viewport, but carry on either way
+    $ff->resize($viewPort->{width}, $viewPort->{height})
+        or diag "Could not resize browser window";
+}
+else
+{
+    # make new window to ensure we get the right viewport
+    $ff = Firefox::Marionette->new(  visible  => $::visible // 0
+                                  ,  width    => $viewPort->{width}
+                                  ,  height   => $viewPort->{height}
+                                  );
+}
 ok $ff->go($startUrl), "Could go to $startUrl";
 
 $vars{'result.startUrl'} = $startUrl;
@@ -125,8 +139,8 @@ for my $idx (keys @{$steps})
         $ff->mouse_move($elems[0])           if $cmd eq 'mouseOver';
         if ( $cmd eq 'dragAndDrop' )
         {
-            my ($drop) = find_elements($value);
-            diag "$desc\nCould not find drop area $value";
+            my ($drop) = find_elements($val);
+            diag "$desc\nCould not find drop area $val";
             $ff->mouse_move($elems[0]);
             $ff->mouse_down(LEFT_BUTTON);
             $drop->scroll($scrollOpts) unless $drop->is_displayed;

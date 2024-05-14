@@ -55,16 +55,14 @@ run-test.pl testsuite.json
 - [x] address.countryCode
 - [x] phone.phoneNumber
 - [x] phone.phoneNumberFormat
-- [ ] image.avatar
+- [x] image.avatar
 - [x] internet.email
 - [x] internet.password
 - [x] internet.ip
 - [x] internet.color
 - [x] date.month
 - [x] date.weekday
-- [ ] data.past
-- [ ] data.future
-- [ ] commerce.productName
+- [x] commerce.productName
 - [x] commerce.price
 - [x] lorem.text
 - [x] random.number
