@@ -2,12 +2,14 @@
 use strict;
 use JSON::XS;
 use Firefox::Marionette;
+use Firefox::Marionette::Keys qw<:all>;
 use Firefox::Marionette::Buttons qw<:all>;
 use Time::HiRes qw<sleep>;
 use List::Util qw<any all none first>;
 use Test::More;
 use lib './lib';
 use GhostInspector::Data qw<weave>;
+use File::Basename qw<basename>;
 
 use Data::Printer;
 
@@ -18,7 +20,16 @@ BEGIN
 {
     if ( 0 == @ARGV || $::help // 0 )
     {
-        warn "$0 [-help] [-visible] [-ignoreViewPort] [-starturl=url] file [file...]\n";
+        my $scriptname = basename($0);
+        warn <<~"END";
+        $scriptname [options] file [files...]
+
+        OPTIONS
+        -help               Show this help page
+        -visible            Run tests with browser window visible.
+        -ignoreViewPort     Use default window size (ignoring test presets).
+        -starturl=url       Override starting url for tests.
+        END
         exit;
     }
     note "Tests will run in Firefox regardless of test settings.";
@@ -40,11 +51,13 @@ my $scrollOpts = {   behavior => 'instant'
                  ,   inline => 'center'
                  };
 
-my @step_keys = qw< command condition target value variableName optional notes >;
-my @interact_cmds = qw< click type >;
-my @assert_elem_cmds = qw< assertElementPresent assertElementNotPresent assertElementVisible assertElementNotVisible assertTextPresent assertTextNotPresent >;
-my @other_cmds = qw< open refresh goBack assertEval extractEval eval pause exit >;
-my @all_cmds = (@interact_cmds, @assert_elem_cmds, @other_cmds);
+my @step_keys        = qw< command condition target value variableName optional notes extra >;
+my @interact_cmds    = qw< click type assign keypress extract >;
+my @assert_elem_cmds = qw< assertElementPresent assertElementNotPresent
+                           assertElementVisible assertElementNotVisible
+                           assertTextPresent assertTextNotPresent >;
+my @other_cmds       = qw< open refresh goBack assertEval store extractEval eval pause exit >;
+my @all_cmds         = (@interact_cmds, @assert_elem_cmds, @other_cmds);
 
 
 ###################
@@ -57,7 +70,7 @@ my $name     = $test->{name}         // die "Nameless test\n";
 my $steps    = $test->{steps}        // die "No steps in test suite\n";
 my $viewPort = $test->{viewportSize};
 
-$startUrl = $::starturl if defined $::starturl; # override start url
+$startUrl = $::startUrl if defined $::startUrl; # override start url
 
 defined $viewPort->{width} && defined $viewPort->{height}
     or $viewPort = $defaultViewPort;
@@ -93,7 +106,7 @@ for my $idx (keys @{$steps})
     sleep $step_pause;
     1 until $ff->interactive; # wait for firefox to load
 
-    my ($cmd, $cond, $target, $val, $var, $optional, $notes) = @{$step}{@step_keys};
+    my ($cmd, $cond, $target, $val, $var, $optional, $notes, $extra) = @{$step}{@step_keys};
     my $desc = sprintf "%d: %s", $idx, $cmd;
 
     unless ( grep { $_ eq $cmd } @all_cmds )
@@ -114,12 +127,13 @@ for my $idx (keys @{$steps})
     {
         $ff->refresh                    if $cmd eq 'refresh';
         $ff->goBack                     if $cmd eq 'goBack';
-        ok $val eq 'passing' and last   if $cmd eq 'exit';
+        ok 'passing' eq $val and last   if $cmd eq 'exit';
         note($desc), sleep $val/1000    if $cmd eq 'pause';
         $ff->script($val)               if $cmd eq 'eval';
         ok $ff->script($val), $desc     if $cmd eq 'assertEval';
         $vars{$var} = $ff->script($val) if $cmd eq 'extractEval';
-        $ff->go($val) if $cmd eq 'open';
+        $vars{$var} = $val              if $cmd eq 'store';
+        $ff->go($val)                   if $cmd eq 'open';
         next;
     }
 
@@ -132,28 +146,39 @@ for my $idx (keys @{$steps})
             diag "$desc\nCould not find $target";
             next;
         }
+        $vars{$var} = elem_text($elems[0]) if $cmd eq 'extract';
+
+        if( $cmd eq 'keypress' )
+       {
+            my @actions = ();
+            click_element($ff, @elems); #click to select element :/
+            push @actions, $ff->key_down(SHIFT())   if $extra->{shift};
+            push @actions, $ff->key_down(CONTROL()) if $extra->{control};
+            push @actions, $ff->key_down(ALT())     if $extra->{alt};
+            push @actions, $ff->key_down(key_lookup($val));
+            ok $ff->perform(@actions)->release();
+            next;
+        }
+
         ok $elems[0]->scroll($scrollOpts);
 
-        ok click_element($ff, @elems), $desc if $cmd eq 'click';
-        ok $elems[0]->type($val), $desc      if $cmd eq 'type';
+        ok click_element($ff, @elems), $desc                    if $cmd eq 'click';
+        ok $elems[0]->type($val), $desc                         if $cmd eq 'type';
+        ok $ff->script(<<~JS, args => [$elems[0], $val]), $desc if $cmd eq 'assign';
+        if( !arguments[0].hasAttribute('value') )
+            return 0;
+        arguments[0].value = arguments[1];
+        return 1;
+        JS
         $ff->mouse_move($elems[0])           if $cmd eq 'mouseOver';
-        if ( $cmd eq 'dragAndDrop' )
-        {
-            my ($drop) = find_elements($val);
-            diag "$desc\nCould not find drop area $val";
-            $ff->mouse_move($elems[0]);
-            $ff->mouse_down(LEFT_BUTTON);
-            $drop->scroll($scrollOpts) unless $drop->is_displayed;
-            $ff->mouse_move($drop);
-            $ff->mouse_up(LEFT_BUTTON);
-        }
-        next;
     }
 
     ok +(all  { defined                 } @elems), $desc if $cmd eq 'assertElementPresent';
     ok +(none { defined                 } @elems), $desc if $cmd eq 'assertElementNotPresent';
     ok +(all  { $_->is_displayed        } @elems), $desc if $cmd eq 'assertElementVisible';
     ok +(none { $_->is_displayed        } @elems), $desc if $cmd eq 'assertElementNotVisible';
+    ok +(any  { elem_text($_) eq $val   } @elems), $desc if $cmd eq 'assertText';
+    ok +(none { elem_text($_) eq $val   } @elems), $desc if $cmd eq 'assertNotText';
     ok +(any  { elem_contains($_, $val) } @elems), $desc if $cmd eq 'assertTextPresent';
     ok +(none { elem_contains($_, $val) } @elems), $desc if $cmd eq 'assertTextNotPresent';
 }
@@ -165,6 +190,10 @@ END
     done_testing;
 }
 
+
+###################
+### SUBROUTINES ###
+###################
 
 sub passes_condition
 {
@@ -213,14 +242,33 @@ sub click_element
         JS
 }
 
+sub elem_text
+{
+    my ($elem) = @_;
+    if( $elem->tag_name eq 'input' )
+    {
+        return $elem->property('value');
+    }
+    $elem->text;
+}
+
 sub elem_contains
 {
     my ($elem, $text) = @_;
-    my $re = qr/$text/;
-    if( $elem->tag_name eq 'input' )
-    {
-        return $elem->property('value') =~ $re;
-    }
-    $elem->text =~ $re;
+    elem_text($elem) =~ qr/$text/;
+}
+
+sub key_lookup
+{
+    my ($key) = @_;
+    return chr($key) if $key =~ /^\d+$/; #ascii code
+
+    my %keys = (    left    => LEFT_BUTTON()
+               ,    right   => RIGHT_BUTTON()
+               ,    down    => DOWN_BUTTON()
+               ,    up      => UP_BUTTON()
+               ,    home    => HOME()
+               );
+    $keys{$key};
 }
 

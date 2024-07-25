@@ -13,9 +13,8 @@ run-test.pl testsuite.json
 - [x] open
 - [x] click
 - [x] mouseOver
-- [ ] dragAndDrop
-- [ ] assign
-- [ ] keypress
+- [x] assign
+- [x] keypress
 - [ ] screenshot
 - [x] eval
 - [x] exit
@@ -25,17 +24,21 @@ run-test.pl testsuite.json
 - [x] assertElementNotPresent
 - [x] assertElementVisible
 - [x] assertElementNotVisible
-- [ ] assertText
-- [ ] assertNotText
+- [x] assertText
+- [x] assertNotText
 - [x] assertTextPresent
 - [x] assertTextNotPresent
 - [ ] assertAccessibility
 - [x] assertEval
 - [x] pause
-- [ ] store
-- [ ] extract
+- [x] store
+- [x] extract
 - [x] extractEval
-- [ ] execute
+
+## not to be implemented
+
+- [ ] dragAndDrop (unclear what this even is supposed to do)
+- [ ] execute (this executes a test by ID)
 
 **built-in variables**
 
@@ -62,11 +65,23 @@ run-test.pl testsuite.json
 - [x] internet.color
 - [x] date.month
 - [x] date.weekday
+- [ ] date.past
+- [ ] date.future
 - [x] commerce.productName
 - [x] commerce.price
 - [x] lorem.text
 - [x] random.number
 - [x] random.uuid
+
+### extra built-in variables
+
+- [ ] date.recent
+    - within the past week
+- [ ] date.soon
+    - within the next week
+- [ ] name.full
+    - first name, last name
+    - usually without title, prefix, and suffix
 
 ## known bugs and limitations
 
