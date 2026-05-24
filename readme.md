@@ -84,6 +84,7 @@ run-test.pl testsuite.json
 
 - no support for importing steps
     - you must include imported steps when exporting test suite
+- currently does not traverse deeper than 1 iframe
 - many test settings are ignored
     - schedule: tests run immediately regardless of schedule
     - browser: all tests run in Firefox

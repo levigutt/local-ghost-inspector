@@ -15,7 +15,7 @@ use Data::Printer;
 
 our $ff;
 our %vars = ();
-our ($help, $ignoreViewPort, $timeout);
+our ($help, $visible, $ignoreViewPort, $timeout);
 BEGIN
 {
     if ( 0 == @ARGV || $::help // 0 )
@@ -36,7 +36,7 @@ BEGIN
     note "Tests will run in Firefox regardless of test settings.";
     if ( $ignoreViewPort )
     {
-        $ff = Firefox::Marionette->new(visible => 1);
+        $ff = Firefox::Marionette->new(visible => $visible // 0);
     }
 }
 
@@ -67,6 +67,7 @@ my @all_cmds         = (@interact_cmds, @assert_elem_cmds, @other_cmds);
 ###################
 my $test = decode_json($_) or die "Invalid json\n";
 
+%vars = ();
 my $startUrl = $test->{startUrl}     // die "Missing starting url\n";
 my $name     = $test->{name}         // die "Nameless test\n";
 my $steps    = $test->{steps}        // die "No steps in test suite\n";
