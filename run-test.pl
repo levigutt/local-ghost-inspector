@@ -15,7 +15,7 @@ use Data::Printer;
 
 our $ff;
 our %vars = ();
-our ($help, $ignoreViewPort);
+our ($help, $ignoreViewPort, $timeout);
 BEGIN
 {
     if ( 0 == @ARGV || $::help // 0 )
@@ -29,13 +29,14 @@ BEGIN
         -visible            Run tests with browser window visible.
         -ignoreViewPort     Use default window size (ignoring test presets).
         -starturl=url       Override starting url for tests.
+        -timeout=x          Set timeout in seconds for assertions (default: 15)
         END
         exit;
     }
     note "Tests will run in Firefox regardless of test settings.";
     if ( $ignoreViewPort )
     {
-        $ff = Firefox::Marionette->new(visible => $::visible // 0);
+        $ff = Firefox::Marionette->new(visible => 1);
     }
 }
 
@@ -50,6 +51,7 @@ my $scrollOpts = {   behavior => 'instant'
                  ,   block => 'center'
                  ,   inline => 'center'
                  };
+my $element_timeout_max = $timeout // 15;
 
 my @step_keys        = qw< command condition target value variableName optional notes extra >;
 my @interact_cmds    = qw< click type assign keypress extract >;
@@ -122,6 +124,8 @@ for my $idx (keys @{$steps})
     }
 
     $val = weave($val, %vars);
+    $target = [map { weave($_, %vars) } ('ARRAY' eq ref $target ? map $_->{selector}, @$target
+                                                                : $target)];
 
     if ( grep { $_ eq $cmd } @other_cmds )
     {
@@ -146,12 +150,12 @@ for my $idx (keys @{$steps})
             diag "$desc\nCould not find $target";
             next;
         }
-        $vars{$var} = elem_text($elems[0]) if $cmd eq 'extract';
+        $vars{$var} = elem_text($ff, $elems[0]) if $cmd eq 'extract';
 
         if( $cmd eq 'keypress' )
        {
             my @actions = ();
-            click_element($ff, @elems); #click to select element :/
+            click_element($ff, $elems[0]); #click to select element :/
             push @actions, $ff->key_down(SHIFT())   if $extra->{shift};
             push @actions, $ff->key_down(CONTROL()) if $extra->{control};
             push @actions, $ff->key_down(ALT())     if $extra->{alt};
@@ -160,27 +164,31 @@ for my $idx (keys @{$steps})
             next;
         }
 
-        ok $elems[0]->scroll($scrollOpts);
+        ok scroll_element($ff, $elems[0]), "Could scroll element into view";
 
-        ok click_element($ff, @elems), $desc                    if $cmd eq 'click';
-        ok $elems[0]->type($val), $desc                         if $cmd eq 'type';
-        ok $ff->script(<<~JS, args => [$elems[0], $val]), $desc if $cmd eq 'assign';
-        if( !arguments[0].hasAttribute('value') )
-            return 0;
-        arguments[0].value = arguments[1];
-        return 1;
-        JS
-        $ff->mouse_move($elems[0])           if $cmd eq 'mouseOver';
+        ok click_element($ff, $elems[0]), $desc         if $cmd eq 'click';
+        ok type_element($ff, $elems[0], $val), $desc    if $cmd eq 'type';
+        ok assign_element($ff, $elems[0], $val), $desc  if $cmd eq 'assign';
+        #$ff->mouse_move($elems[0])                  if $cmd eq 'mouseOver';
     }
 
-    ok +(all  { defined                 } @elems), $desc if $cmd eq 'assertElementPresent';
-    ok +(none { defined                 } @elems), $desc if $cmd eq 'assertElementNotPresent';
-    ok +(all  { $_->is_displayed        } @elems), $desc if $cmd eq 'assertElementVisible';
-    ok +(none { $_->is_displayed        } @elems), $desc if $cmd eq 'assertElementNotVisible';
-    ok +(any  { elem_text($_) eq $val   } @elems), $desc if $cmd eq 'assertText';
-    ok +(none { elem_text($_) eq $val   } @elems), $desc if $cmd eq 'assertNotText';
-    ok +(any  { elem_contains($_, $val) } @elems), $desc if $cmd eq 'assertTextPresent';
-    ok +(none { elem_contains($_, $val) } @elems), $desc if $cmd eq 'assertTextNotPresent';
+    next unless 'assert' eq substr $cmd, 0, 6;
+    my $assert_ok = 0;
+    for(0..$element_timeout_max)
+    {
+        $assert_ok = (@elems && all  { defined                      } @elems) if $cmd eq 'assertElementPresent';
+        $assert_ok = (          none { defined                      } @elems) if $cmd eq 'assertElementNotPresent';
+        $assert_ok = (@elems && all  { elem_displayed($ff, $_)      } @elems) if $cmd eq 'assertElementVisible';
+        $assert_ok = (          none { elem_displayed($ff, $_)      } @elems) if $cmd eq 'assertElementNotVisible';
+        $assert_ok = (@elems && any  { elem_text($ff, $_) eq $val   } @elems) if $cmd eq 'assertText';
+        $assert_ok = (          none { elem_text($ff, $_) eq $val   } @elems) if $cmd eq 'assertNotText';
+        $assert_ok = (@elems && any  { elem_contains($ff, $_, $val) } @elems) if $cmd eq 'assertTextPresent';
+        $assert_ok = (          none { elem_contains($ff, $_, $val) } @elems) if $cmd eq 'assertTextNotPresent';
+        last if $assert_ok;
+        @elems = find_elements($ff, $target);
+        sleep 1;
+    }
+    ok $assert_ok, $desc;
 }
 
 $ff->clear_cache;
@@ -208,54 +216,129 @@ sub passes_condition
 sub find_elements
 {
     my ($ff, $target) = @_;
-    my @selectors = ('ARRAY' eq ref $target ? map $_->{selector}, @$target
-                                            : $target);
-    my $css = first { $ff->has_selector($_) }
-              grep { 0 > index $_, "//" }
-              @selectors;
-    my $xpath = first { $ff->has($_) }
-                map { s/^xpath=//r }
-                grep { 0 <= index $_, "//" }
-                @selectors;
-    return $ff->find_selector($css) if defined $css;
-    return $ff->find($xpath)        if defined $xpath;
-    return;
+    my @found_elements;
+    foreach my $selector (@$target)
+    {
+        my $is_xpath = 0 <= index $selector, '//';
+        print $selector if $is_xpath;
+        push @found_elements, [$_, undef] for $is_xpath ? $ff->find($selector)
+                                                        : $ff->find_selector($selector);
+        my @parts = $is_xpath ? split_unbracketed($selector, '\s')
+                              : split_unquoted($selector, '\s');
+        foreach my $idx (keys @parts)
+        {
+            my $partial = join' ', @parts[0..$idx];
+            next if grep { $_ eq substr $partial, -1 } qw{ > + ~ };
+            my $element = $is_xpath ? $ff->has($partial)
+                                    : $ff->has_selector($partial);
+            last unless $element;
+
+            next unless 'iframe' eq $element->tag_name && $idx < $#parts;
+            my @iframes = $is_xpath ? $ff->find($partial)
+                                    : $ff->find_selector($partial);
+            foreach my $iframe ( @iframes )
+            {
+                $ff->switch_to_frame($iframe);
+                my @frame_elements = $is_xpath ? $ff->find(join' ', @parts[$idx+1 .. $#parts])
+                                               : $ff->find_selector(join' ', @parts[$idx+1 .. $#parts]);
+                push @found_elements, [$_, $iframe] for @frame_elements;
+            }
+            $ff->switch_to_parent_frame;
+            last;
+        }
+    }
+    @found_elements;
+}
+
+
+sub type_element
+{
+    my ($ff, $element, $val) = @_;
+    $ff->switch_to_frame($element->[1]) if $element->[1];
+    my $could_type = $element->[0]->type($val);
+    $ff->switch_to_parent_frame;
+    $could_type;
+}
+
+
+sub assign_element
+{
+    my ($ff, $element, $val) = @_;
+    $ff->switch_to_frame($element->[1]) if $element->[1];
+    $element->[0]->clear;
+    my $could_assign = $element->[0]->type($val);
+    $ff->switch_to_parent_frame;
+    $could_assign;
+}
+
+
+sub scroll_element
+{
+    my ($ff, $element) = @_;
+    for(0..$element_timeout_max)
+    {
+        last if elem_displayed($ff, $element);
+        sleep 1;
+    }
+    $ff->switch_to_frame($element->[1]) if $element->[1];
+    my $could_scroll = $element->[0]->scroll($scrollOpts);
+    $ff->switch_to_parent_frame;
+    $could_scroll;
 }
 
 # weird bug when clicking links without direct text-node descendants and a leading # in href
 sub click_element
 {
-    my ($ff, $elem) = @_;
+    my ($ff, $element) = @_;
+    $ff->switch_to_frame($element->[1]) if $element->[1];
     eval
     {
-        $elem->click()
+        $element->[0]->click()
     };
-    return 1 unless $@;
+    if ( ! $@ )
+    {
+        $ff->switch_to_parent_frame;
+        return 1;
+    }
 
-    $ff->scroll($elem, $scrollOpts);
-    return $ff->script(<<~JS, args => [$elem]);
+    $ff->scroll($element->[0], $scrollOpts);
+    my $clicked = $ff->script(<<~JS, args => [$element->[0]]);
         if( arguments[0].click ){
             arguments[0].click();
             return 1
         }
         return 0
         JS
+    $ff->switch_to_parent_frame;
+    $clicked;
 }
 
 sub elem_text
 {
-    my ($elem) = @_;
-    if( $elem->tag_name eq 'input' )
+    my ($ff, $element) = @_;
+    $ff->switch_to_frame($element->[1]) if $element->[1];
+    if( $element->[0]->tag_name eq 'input' )
     {
-        return $elem->property('value');
+        return $element->[0]->property('value');
     }
-    $elem->text;
+    my $element_text = $element->[0]->text;
+    $ff->switch_to_parent_frame;
+    $element_text;
 }
 
 sub elem_contains
 {
-    my ($elem, $text) = @_;
-    elem_text($elem) =~ qr/$text/;
+    my ($ff, $element, $text) = @_;
+    elem_text($ff, $element) =~ qr/$text/;
+}
+
+sub elem_displayed
+{
+    my ($ff, $element) = @_;
+    $ff->switch_to_frame($element->[1]) if $element->[1];
+    my $is_displayed = $element->[0]->is_displayed;
+    $ff->switch_to_parent_frame;
+    $is_displayed;
 }
 
 sub key_lookup
@@ -272,3 +355,45 @@ sub key_lookup
     $keys{$key};
 }
 
+sub split_unquoted
+{
+    my ($string, $char) = @_;
+    my @parts = split/($char*([\'\"])[^\2]*?\2)/, $string;
+    split_preserve($char, @parts);
+}
+
+sub split_unbracketed
+{
+    my ($string, $char) = @_;
+    my @parts = split/$char*\[[^\]]*?\]/, $string;
+    split_preserve($char, @parts);
+}
+
+sub split_preserve
+{
+    my ($char, @parts) = @_;
+    my @result = ('');
+    my $join = 0;
+    for my $idx (keys @parts)
+    {
+        my $part = $parts[$idx];
+        if ( grep { $_ eq substr $part, -1 } qw< ' " > )
+        {
+            if ( 1 < length $part )
+            {
+                push @result, $part if ' ' eq substr $part, 0, 1;
+                $result[-1].= $part if ' ' ne substr $part, 0, 1;
+            }
+            $join = 1;
+            next;
+        }
+        my @split = split/$char+/, $part;
+        if ( $join )
+        {
+            $result[-1].= shift @split;
+            $join = 0;
+        }
+        push @result, @split;
+    }
+    grep { length } @result;
+}

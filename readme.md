@@ -12,7 +12,7 @@ run-test.pl testsuite.json
 
 - [x] open
 - [x] click
-- [x] mouseOver
+- [ ] mouseOver
 - [x] assign
 - [x] keypress
 - [ ] screenshot
@@ -75,13 +75,10 @@ run-test.pl testsuite.json
 
 ### extra built-in variables
 
-- [ ] date.recent
+- [x] date.recent
     - within the past week
-- [ ] date.soon
+- [x] date.soon
     - within the next week
-- [ ] name.full
-    - first name, last name
-    - usually without title, prefix, and suffix
 
 ## known bugs and limitations
 
