@@ -221,11 +221,10 @@ sub find_elements
     foreach my $selector (@$target)
     {
         my $is_xpath = 0 <= index $selector, '//';
-        print $selector if $is_xpath;
         push @found_elements, [$_, undef] for $is_xpath ? $ff->find($selector)
                                                         : $ff->find_selector($selector);
-        my @parts = $is_xpath ? split_unbracketed($selector, '\s')
-                              : split_unquoted($selector, '\s');
+        #split by spaces, but not inside brackets
+        my @parts = split/\s+(?=(?:[^\[\]]*?\[[^\[\]]*?\])*[^\[\]]*$)/, $selector;
         foreach my $idx (keys @parts)
         {
             my $partial = join' ', @parts[0..$idx];
@@ -356,45 +355,3 @@ sub key_lookup
     $keys{$key};
 }
 
-sub split_unquoted
-{
-    my ($string, $char) = @_;
-    my @parts = split/($char*([\'\"])[^\2]*?\2)/, $string;
-    split_preserve($char, @parts);
-}
-
-sub split_unbracketed
-{
-    my ($string, $char) = @_;
-    my @parts = split/$char*\[[^\]]*?\]/, $string;
-    split_preserve($char, @parts);
-}
-
-sub split_preserve
-{
-    my ($char, @parts) = @_;
-    my @result = ('');
-    my $join = 0;
-    for my $idx (keys @parts)
-    {
-        my $part = $parts[$idx];
-        if ( grep { $_ eq substr $part, -1 } qw< ' " > )
-        {
-            if ( 1 < length $part )
-            {
-                push @result, $part if ' ' eq substr $part, 0, 1;
-                $result[-1].= $part if ' ' ne substr $part, 0, 1;
-            }
-            $join = 1;
-            next;
-        }
-        my @split = split/$char+/, $part;
-        if ( $join )
-        {
-            $result[-1].= shift @split;
-            $join = 0;
-        }
-        push @result, @split;
-    }
-    grep { length } @result;
-}
